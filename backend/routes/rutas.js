@@ -1,41 +1,22 @@
 const express = require("express");
+const db = require("../config/database");
+
 const router = express.Router();
-const {
-    login,
-    registro
-} = require("../controllers/controller");
+router.get("/health", async (req, res, next) => {
+    try {
+        await db.query("SELECT 1");
+        return res.json({ status: "ok" });
+    } catch (error) {
+        return next(error);
+    }
+});
 
-const{
-    obtenerAutos,
-    crearAuto,
-    actualizarAuto,
-    eliminarAuto,
-    buscarAutos
-} = require("../controllers/autoController");
-
-const{
-    obtenerPiezas,
-    crearPieza,
-    actualizarPieza,
-    eliminarPieza,
-    buscarPiezas
-} = require("../controllers/piezaController");
-
-// Rutas para la gestión de autos
-router.get("/autos", obtenerAutos);
-router.get("/autos/:id", buscarAutos);
-router.post("/autos", crearAuto);
-router.put("/autos/:id", actualizarAuto);
-router.delete("/autos/:id", eliminarAuto);
-
-// Rutas para la gestión de piezas
-router.get("/piezas", obtenerPiezas);
-router.get("/piezas/:id", buscarPiezas);
-router.post("/piezas", crearPieza);
-router.put("/piezas/:id", actualizarPieza);
-router.delete("/piezas/:id", eliminarPieza);
-
-router.post("/login", login);
-router.post("/registro", registro);
+router.use(require("./auth/authRoutes"));
+router.use("/game", require("./game/gameRoutes"));
+router.use(require("./garage/garageRoutes"));
+router.use(require("./shop/shopRoutes"));
+router.use(require("./racing/racingRoutes"));
+router.use(require("./casino/casinoRoutes"));
+router.use("/admin", require("./admin/adminRoutes"));
 
 module.exports = router;

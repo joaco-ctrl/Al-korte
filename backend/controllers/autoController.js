@@ -1,9 +1,9 @@
-const gameservice = require("../service/autoService");
+const autoService = require("../service/autoService");
 
 function buscarAutos(req, res) {
     const { id } = req.params;
 
-    gameservice.buscarAutos({ id }, (err, results) => {
+    autoService.buscarAutos({ id }, (err, results) => {
         if (err) {
             return res.status(400).json({ error: err.message });
         }
