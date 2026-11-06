@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 const menu = [
@@ -12,6 +12,36 @@ const menu = [
 ];
 const currency = (amount) => `$${Number(amount || 0).toLocaleString("es-AR")}`;
 const rarityClass = (name = "") => `rarity-${name.toLowerCase().replaceAll("é", "e")}`;
+const rarities = ["Común", "Raro", "Épico", "Legendario", "Especial"];
+const rouletteNumbers = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+const rouletteRedNumbers = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+const rouletteColor = (number) => number === 0 ? "green" : rouletteRedNumbers.has(number) ? "red" : "black";
+const rouletteSegmentAngle = 360 / rouletteNumbers.length;
+const rouletteWheelGradient = `conic-gradient(${rouletteNumbers.map((number, index) => `${number === 0 ? "#17623e" : rouletteRedNumbers.has(number) ? "#9b253d" : "#16191a"} ${index * rouletteSegmentAngle}deg ${(index + 1) * rouletteSegmentAngle}deg`).join(", ")})`;
+const pieceCategories = [
+  { value: "escapes", label: "Escapes", terms: ["escape"] },
+  { value: "induccion", label: "Inducción/Turbos", terms: ["turbo", "induccion", "forzada"] },
+  { value: "admision", label: "Admisión", terms: ["admision", "filtro"] },
+  { value: "electronica", label: "Electrónica/ECU", terms: ["electronica", "ecu", "repro"] },
+  { value: "motor", label: "Motor", terms: ["motor", "bloque", "piston", "buj"] },
+  { value: "transmision", label: "Transmisión", terms: ["transmision", "caja", "embrague"] },
+  { value: "neumaticos", label: "Neumáticos", terms: ["neumatico", "rueda"] },
+];
+const normalizeLabel = (value = "") => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+function CatalogFilters({ label, options, value, onChange }) {
+  return <div className="catalog-filter">
+    <span className="eyebrow">{label}</span>
+    <div className="filter-pills" role="group" aria-label={label}>
+      <button type="button" className={value === "all" ? "current" : ""} aria-pressed={value === "all"} onClick={() => onChange("all")}>TODAS</button>
+      {options.map((option) => {
+        const optionValue = typeof option === "string" ? normalizeLabel(option) : option.value;
+        const optionLabel = typeof option === "string" ? option : option.label;
+        return <button type="button" key={optionValue} className={value === optionValue ? "current" : ""} aria-pressed={value === optionValue} onClick={() => onChange(optionValue)}>{optionLabel}</button>;
+      })}
+    </div>
+  </div>;
+}
 
 async function request(path, token, options = {}) {
   const response = await fetch(`${API}${path}`, {
@@ -288,14 +318,25 @@ function Garage({ data, activeCar, stats, busy, action }) {
 
 function Shop({ data, busy, action }) {
   const [tab, setTab] = useState("autos");
-  const list = data.shop[tab] || [];
+  const [rarityFilter, setRarityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const list = (data.shop[tab] || []).filter((item) => {
+    if (tab === "autos") return rarityFilter === "all" || normalizeLabel(item.rareza) === rarityFilter;
+    if (categoryFilter === "all") return true;
+    const category = pieceCategories.find((option) => option.value === categoryFilter);
+    const normalizedCategory = normalizeLabel(item.categoria);
+    return category?.terms.some((term) => normalizedCategory.includes(term));
+  });
   return <div className="page"><PageTitle eyebrow="MARKET / STREET PARTS" title={<>La <span className="accent">tienda.</span></>} copy="Piezas para afinar. Máquinas para hacer historia." />
-    <div className="tabs"><button className={tab === "autos" ? "current" : ""} onClick={() => setTab("autos")}>AUTOS <span>{data.shop.autos.length}</span></button><button className={tab === "piezas" ? "current" : ""} onClick={() => setTab("piezas")}>PIEZAS <span>{data.shop.piezas.length}</span></button></div>
+    <div className="tabs shop-tabs" role="tablist" aria-label="Secciones de la tienda"><button role="tab" aria-selected={tab === "autos"} className={tab === "autos" ? "current" : ""} onClick={() => setTab("autos")}>AUTOS <span>{data.shop.autos.length}</span></button><button role="tab" aria-selected={tab === "piezas"} className={tab === "piezas" ? "current" : ""} onClick={() => setTab("piezas")}>PIEZAS <span>{data.shop.piezas.length}</span></button></div>
+    {tab === "autos"
+      ? <CatalogFilters label="FILTRAR AUTOS POR RAREZA" options={rarities} value={rarityFilter} onChange={setRarityFilter} />
+      : <CatalogFilters label="FILTRAR PIEZAS POR CATEGORÍA" options={pieceCategories} value={categoryFilter} onChange={setCategoryFilter} />}
     <div className="catalog-grid">{list.map((item) => {
       const owned = tab === "autos" ? data.garage.some((car) => car.id_auto === item.id) : data.inventory.some((piece) => piece.id_pieza === item.id);
       return <article className="product-card" key={item.id}><div className="product-top"><span className={`rarity ${rarityClass(item.rareza)}`}>{item.rareza}</span><span className="item-id">#{String(item.id).padStart(3, "0")}</span></div><div className="product-icon">{tab === "autos" ? "🏎️" : "⚙"}</div><h3>{item.nombre}</h3><p>{tab === "piezas" ? item.categoria : "Street machine"}</p><div className="product-stats">HP {item.HP} <i /> NM {item.NM} <i /> AG {item.Agarre}</div><div className="product-buy"><strong>{currency(item.precio)}</strong><Button variant="small" disabled={busy || owned || item.precio <= 0} onClick={() => action("/shop/buy", { method: "POST", body: JSON.stringify({ type: tab === "autos" ? "auto" : "pieza", id: item.id }) }, "Compra realizada. ¡A disfrutar!")}>{owned ? "EN TU GARAJE" : "COMPRAR"}</Button></div></article>;
     })}</div>
-    {!list.length && <Empty title="Todavía no hay artículos" copy="Volvé más tarde, piloto." />}
+    {!list.length && <Empty title="No hay artículos con este filtro" copy="Probá otra rareza o categoría para ver más opciones." />}
     <div className="footer-note">Los autos comprados incluyen piezas iniciales. Todas las ventas se pagan al 50% del valor original.</div>
   </div>;
 }
@@ -361,35 +402,251 @@ function Blacklist({ data, race, progress, busy, action }) {
 }
 
 function Casino({ data, busy, action }) {
+  const [view, setView] = useState("roulette");
   const [amount, setAmount] = useState(10);
   const [choice, setChoice] = useState("red");
+  const [betType, setBetType] = useState("color");
   const [result, setResult] = useState(null);
+  const [wheelPhase, setWheelPhase] = useState("idle");
+  const [wheelRotation, setWheelRotation] = useState(0);
+  const [ballRotation, setBallRotation] = useState(0);
   const [blackjack, setBlackjack] = useState(null);
   const [specialTab, setSpecialTab] = useState("autos");
+  const [rarityFilter, setRarityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const wheelRotationRef = useRef(0);
+  const ballRotationRef = useRef(0);
+  const spinIntervalRef = useRef(null);
+  const ballIntervalRef = useRef(null);
+  const spinFinishRef = useRef(null);
+  const ballReturnRef = useRef(null);
+
+  useEffect(() => () => {
+    window.clearInterval(spinIntervalRef.current);
+    window.clearInterval(ballIntervalRef.current);
+    window.clearTimeout(spinFinishRef.current);
+    window.clearTimeout(ballReturnRef.current);
+  }, []);
+
+  function updateWheelRotation(rotation) {
+    wheelRotationRef.current = rotation;
+    setWheelRotation(rotation);
+  }
+
+  function updateBallRotation(rotation) {
+    ballRotationRef.current = rotation;
+    setBallRotation(rotation);
+  }
+
+  function resetBall() {
+    window.clearTimeout(ballReturnRef.current);
+    setWheelPhase("returning");
+    updateBallRotation(0);
+    ballReturnRef.current = window.setTimeout(() => setWheelPhase("idle"), 650);
+  }
 
   async function roulette() {
-    const body = await action("/casino/roulette", { method: "POST", body: JSON.stringify({ amount: Number(amount), choice }) });
-    if (body) { setResult(body); }
+    if (wheelPhase !== "idle") return;
+    window.clearTimeout(ballReturnRef.current);
+    setResult(null);
+    setWheelPhase("rolling");
+    spinIntervalRef.current = window.setInterval(() => {
+      updateWheelRotation(wheelRotationRef.current + 360);
+    }, 900);
+    ballIntervalRef.current = window.setInterval(() => {
+      updateBallRotation(ballRotationRef.current + 36);
+    }, 75);
+    const body = await action("/casino/roulette", { method: "POST", body: JSON.stringify({ amount: Number(amount), choice, betType }) });
+    window.clearInterval(spinIntervalRef.current);
+    spinIntervalRef.current = null;
+    window.clearInterval(ballIntervalRef.current);
+    ballIntervalRef.current = null;
+    if (!body) {
+      resetBall();
+      return;
+    }
+
+    const winningIndex = rouletteNumbers.indexOf(body.number);
+    if (winningIndex < 0) {
+      resetBall();
+      return;
+    }
+    const pocketAngle = (winningIndex + 0.5) * rouletteSegmentAngle;
+    const currentAngle = ((wheelRotationRef.current % 360) + 360) % 360;
+    const alignment = (360 - ((pocketAngle + currentAngle) % 360)) % 360;
+    updateWheelRotation(wheelRotationRef.current + 5 * 360 + alignment);
+    const currentBallAngle = ((ballRotationRef.current % 360) + 360) % 360;
+    const ballAlignment = (360 - currentBallAngle) % 360;
+    updateBallRotation(ballRotationRef.current + 4 * 360 + ballAlignment);
+    setWheelPhase("settling");
+    spinFinishRef.current = window.setTimeout(() => {
+      setWheelPhase("result");
+      setResult(body);
+      ballReturnRef.current = window.setTimeout(resetBall, 1800);
+    }, 4300);
   }
   async function blackjackAction(actionName) {
     const body = await action("/casino/blackjack", { method: "POST", body: JSON.stringify({ action: actionName, amount: Number(amount) }) });
-    if (body?.game) setBlackjack(body);
-    if (body?.resultado) setResult({ win: body.resultado !== "Perdiste", casinoMessage: `Blackjack: ${body.resultado}. Pago: ${body.pago} fichas.` });
+    if (body?.game) setBlackjack(body.resultado ? { ...body, game: { ...body.game, done: true } } : body);
   }
 
-  const items = data.casinoStore[specialTab] || [];
+  const selectedBetLabel = betType === "number"
+    ? `NÚMERO ${choice}`
+    : betType === "dozen"
+      ? `${choice === "first" ? "1.ª" : choice === "second" ? "2.ª" : "3.ª"} DOCENA`
+      : betType === "column"
+        ? `${choice === "first" ? "1.ª" : choice === "second" ? "2.ª" : "3.ª"} COLUMNA`
+        : betType === "outside"
+          ? { low: "1–18", even: "PAR", odd: "IMPAR", high: "19–36", red: "ROJO", black: "NEGRO" }[choice]
+          : choice === "red" ? "ROJO" : "NEGRO";
+
+  const items = (data.casinoStore[specialTab] || []).filter((item) => {
+    if (specialTab === "autos") return rarityFilter === "all" || normalizeLabel(item.rareza) === rarityFilter;
+    if (categoryFilter === "all") return true;
+    const category = pieceCategories.find((option) => option.value === categoryFilter);
+    const normalizedCategory = normalizeLabel(item.categoria);
+    return category?.terms.some((term) => normalizedCategory.includes(term));
+  });
   return <div className="page casino-page"><PageTitle eyebrow="SOLO FICHAS / NUNCA SALDO" title={<>La suerte es <span className="pink-text">un juego.</span></>} copy="Las fichas del casino no se compran con dinero: se ganan en la pista." action={<div className="token-display">✦ {Number(data.user.fichas_casino).toLocaleString("es-AR")} FICHAS</div>} />
-    <div className="casino-grid"><section className="casino-game roulette-game"><div className="game-title"><span className="eyebrow">01 / RULETA</span><span>EUROPEAN · 0—36</span></div><div className="roulette-wheel"><div className="wheel-ring"><div className="wheel-number">{result?.number ?? "?"}</div></div><span className="wheel-glow" /></div><div className="roulette-controls"><label>APUESTA EN FICHAS<input type="number" min="1" max={data.user.fichas_casino} value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label>ELECCIÓN<select value={choice} onChange={(event) => setChoice(event.target.value)}><option value="red">Rojo · x2</option><option value="black">Negro · x2</option><option value="green">Verde · x2</option>{Array.from({ length: 37 }, (_, i) => <option key={i} value={i}>Número {i} · x35</option>)}</select></label><Button variant="pink" disabled={busy} onClick={roulette}>GIRAR RULETA ↗</Button></div></section>
-      <section className="casino-game blackjack-game"><div className="game-title"><span className="eyebrow">02 / BLACKJACK</span><span>21 · DEALER STANDS ON 17</span></div><div className="cards-table"><div><span>DEALER {blackjack?.game?.dealerTotal ? `· ${blackjack.game.dealerTotal}` : ""}</span><div className="playing-cards">{blackjack?.game?.dealer?.map((card, i) => <Card key={i} card={card} />) || <Card card={{ name: "?" }} />}</div></div><div><span>PLAYER {blackjack?.game?.playerTotal ? `· ${blackjack.game.playerTotal}` : ""}</span><div className="playing-cards">{blackjack?.game?.player?.map((card, i) => <Card key={i} card={card} />) || <Card card={{ name: "?" }} />}</div></div></div><div className="blackjack-controls"><label>APUESTA<input type="number" min="1" max={data.user.fichas_casino} value={amount} onChange={(event) => setAmount(event.target.value)} /></label>{blackjack?.game && !blackjack.resultado ? <><Button variant="outline small" disabled={busy} onClick={() => blackjackAction("hit")}>PEDIR</Button><Button variant="pink small" disabled={busy} onClick={() => blackjackAction("stand")}>PLANTARSE</Button></> : <Button variant="pink" disabled={busy} onClick={() => blackjackAction("start")}>REPARTIR →</Button>}</div></section></div>
+    <nav className="casino-subnav" role="tablist" aria-label="Secciones del casino">
+      {[["roulette", "Ruleta", "01"], ["blackjack", "Blackjack", "02"], ["store", "Tienda de fichas", "03"]].map(([key, label, index]) => <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? "current" : ""} onClick={() => setView(key)}><span>{index}</span>{label}</button>)}
+    </nav>
+    {view === "roulette" && <section className="casino-game casino-single-game roulette-casino-game" role="tabpanel">
+      <div className="game-title"><span className="eyebrow">01 / RULETA EUROPEA</span><span>37 CASILLAS · PAGO INSTANTÁNEO</span></div>
+      <div className="roulette-layout">
+        <div className="roulette-wheel-column">
+          <div className="roulette-wheel-stage">
+            <span className="roulette-pointer" aria-hidden="true">▼</span>
+            <div className={`roulette-wheel ${wheelPhase}`} style={{ transform: `rotate(${wheelRotation}deg)` }}>
+              <div className="roulette-wheel-track" style={{ background: rouletteWheelGradient }}>
+                {rouletteNumbers.map((number, index) => {
+                  const angle = (index + 0.5) * rouletteSegmentAngle;
+                  return <span key={number} className={`roulette-pocket ${rouletteColor(number)}`} style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(var(--pocket-offset)) rotate(${-angle}deg)` }}>{number}</span>;
+                })}
+                <div className="roulette-hub"><span>AL-KORTE</span><strong>{wheelPhase === "rolling" || wheelPhase === "settling" ? "· · ·" : result?.number ?? "00"}</strong><small>{result ? result.color.toUpperCase() : "EUROPEAN"}</small></div>
+              </div>
+            </div>
+            <span className={`roulette-ball-track ${wheelPhase === "rolling" ? "moving" : wheelPhase === "settling" ? "settling" : wheelPhase === "result" ? "result" : wheelPhase === "returning" ? "returning" : ""}`} style={{ transform: `rotate(${ballRotation}deg)`, "--ball-position-y": wheelPhase === "returning" || wheelPhase === "idle" ? "50%" : "9%" }} aria-hidden="true"><i /></span>
+          </div>
+          <div className="roulette-wheel-caption"><span>♣</span> RULETA EUROPEA <span>0 — 36</span></div>
+        </div>
+        <div className="roulette-table-panel">
+          <div className="roulette-table-heading">
+            <div><span className="eyebrow">PAÑO DE APUESTAS</span><strong>Elegí una casilla de la mesa</strong></div>
+            <label className="roulette-wager">FICHAS A APOSTAR<input type="number" min="1" max={data.user.fichas_casino} value={amount} disabled={busy || wheelPhase !== "idle"} onChange={(event) => setAmount(event.target.value)} /></label>
+          </div>
+          <div className="roulette-betting-felt">
+            <div className="roulette-number-board" aria-label="Mesa de ruleta: números del cero al treinta y seis">
+              <button type="button" className={`roulette-table-number green ${betType === "number" && Number(choice) === 0 ? "selected" : ""}`} style={{ gridColumn: 1, gridRow: "1 / span 3" }} aria-pressed={betType === "number" && Number(choice) === 0} disabled={busy || wheelPhase !== "idle"} onClick={() => { setBetType("number"); setChoice(0); }}>0</button>
+              {[3, 2, 1].map((rowNumber, row) => Array.from({ length: 12 }, (_, column) => {
+                const number = column * 3 + rowNumber;
+                return <button key={number} type="button" className={`roulette-table-number ${rouletteColor(number)} ${betType === "number" && Number(choice) === number ? "selected" : ""}`} style={{ gridColumn: column + 2, gridRow: row + 1 }} aria-pressed={betType === "number" && Number(choice) === number} disabled={busy || wheelPhase !== "idle"} onClick={() => { setBetType("number"); setChoice(number); }}>{number}</button>;
+              }))}
+            </div>
+            <div className="roulette-dozens" aria-label="Apuestas por docena">
+              {[["first", "1.ª DOCENA", "1 — 12"], ["second", "2.ª DOCENA", "13 — 24"], ["third", "3.ª DOCENA", "25 — 36"]].map(([value, label, range]) => <button key={value} type="button" aria-pressed={betType === "dozen" && choice === value} className={betType === "dozen" && choice === value ? "selected" : ""} disabled={busy || wheelPhase !== "idle"} onClick={() => { setBetType("dozen"); setChoice(value); }}><span>{label}</span><small>{range} · PAGA 2:1</small></button>)}
+            </div>
+            <div className="roulette-columns" aria-label="Apuestas por columna">
+              <span>COLUMNAS</span>
+              {[["first", "1.ª"], ["second", "2.ª"], ["third", "3.ª"]].map(([value, label]) => <button key={value} type="button" aria-pressed={betType === "column" && choice === value} className={betType === "column" && choice === value ? "selected" : ""} disabled={busy || wheelPhase !== "idle"} onClick={() => { setBetType("column"); setChoice(value); }}>{label} · 2:1</button>)}
+            </div>
+            <div className="roulette-outside-bets">
+              {[["low", "1–18"], ["even", "PAR"], ["red", "ROJO"], ["black", "NEGRO"], ["odd", "IMPAR"], ["high", "19–36"]].map(([value, label]) => <button key={value} type="button" aria-pressed={betType === "outside" && choice === value} className={`${value} ${betType === "outside" && choice === value ? "selected" : ""}`} disabled={busy || wheelPhase !== "idle"} onClick={() => { setBetType("outside"); setChoice(value); }}>{label}<small>1:1</small></button>)}
+            </div>
+            <div className="roulette-table-footer"><span className="roulette-selected-bet">APUESTA: <strong>{selectedBetLabel}</strong></span><Button variant="pink roulette-spin-button" disabled={busy || wheelPhase !== "idle" || Number(amount) < 1 || Number(amount) > Number(data.user.fichas_casino)} onClick={roulette}>{wheelPhase !== "idle" ? "GIRANDO..." : "GIRAR RULETA"} <span>↗</span></Button></div>
+          </div>
+          <p className="roulette-payout-note">{betType === "number" ? "Número exacto · pago 35:1" : ["dozen", "column"].includes(betType) ? `${betType === "dozen" ? "Docena" : "Columna"} acertada · pago 2:1` : "Apuesta exterior acertada · pago 1:1"}. Se devuelve la apuesta al ganar.</p>
+        </div>
+      </div>
+    </section>}
+    {view === "blackjack" && <BlackjackTable
+      blackjack={blackjack}
+      amount={amount}
+      fichas={Number(data.user.fichas_casino)}
+      busy={busy}
+      onAmountChange={setAmount}
+      onAction={blackjackAction}
+    />}
+    {view === "store" && <section className="casino-store-view" role="tabpanel">
+      <div className="section-heading casino-store-heading"><div><span className="eyebrow">REWARD SHOP / RAREZA ESPECIAL</span><h2>Tienda de fichas</h2></div></div>
+      <div className="tabs shop-tabs" role="tablist" aria-label="Catálogo de fichas"><button role="tab" aria-selected={specialTab === "autos"} className={specialTab === "autos" ? "current" : ""} onClick={() => setSpecialTab("autos")}>AUTOS</button><button role="tab" aria-selected={specialTab === "piezas"} className={specialTab === "piezas" ? "current" : ""} onClick={() => setSpecialTab("piezas")}>PIEZAS</button></div>
+      {specialTab === "autos"
+        ? <CatalogFilters label="FILTRAR AUTOS POR RAREZA" options={rarities} value={rarityFilter} onChange={setRarityFilter} />
+        : <CatalogFilters label="FILTRAR PIEZAS POR CATEGORÍA" options={pieceCategories} value={categoryFilter} onChange={setCategoryFilter} />}
+      <div className="catalog-grid">{items.map((item) => <article className="product-card special-card" key={item.id}><span className="rarity rarity-especial">ESPECIAL</span><div className="product-icon">{specialTab === "autos" ? "🏎️" : "⚙"}</div><h3>{item.nombre}</h3><p>{item.categoria || "Edición especial"}</p><div className="product-buy"><strong>✦ {item.precio_fichas}</strong><Button variant="small pink" disabled={busy} onClick={() => action("/casino/store/buy", { method: "POST", body: JSON.stringify({ type: specialTab === "autos" ? "auto" : "pieza", id: item.id }) }, "Canje realizado.")}>CANJEAR</Button></div></article>)}</div>
+      {!items.length && <div className="empty-line">No hay artículos con este filtro. Probá otra rareza o categoría.</div>}
+    </section>}
     {result && <div className={`notice ${result.win ? "success" : "error"}`}>{result.casinoMessage || `La ruleta cayó en ${result.number} ${result.color}. ${result.win ? `¡Ganaste ${result.pago} fichas!` : "Esta vez no salió."}`}<button onClick={() => setResult(null)}>×</button></div>}
-    <div className="section-heading"><div><span className="eyebrow">REWARD SHOP / RAREZA ESPECIAL</span><h2>Tienda de fichas</h2></div></div><div className="tabs"><button className={specialTab === "autos" ? "current" : ""} onClick={() => setSpecialTab("autos")}>AUTOS</button><button className={specialTab === "piezas" ? "current" : ""} onClick={() => setSpecialTab("piezas")}>PIEZAS</button></div>
-    <div className="catalog-grid">{items.map((item) => <article className="product-card special-card" key={item.id}><span className="rarity rarity-especial">ESPECIAL</span><div className="product-icon">{specialTab === "autos" ? "🏎️" : "⚙"}</div><h3>{item.nombre}</h3><p>{item.categoria || "Edición especial"}</p><div className="product-buy"><strong>✦ {item.precio_fichas}</strong><Button variant="small pink" disabled={busy} onClick={() => action("/casino/store/buy", { method: "POST", body: JSON.stringify({ type: specialTab === "autos" ? "auto" : "pieza", id: item.id }) }, "Canje realizado.")}>CANJEAR</Button></div></article>)}</div>{!items.length && <div className="empty-line">Aún no hay artículos especiales. El administrador puede agregarlos desde el panel.</div>}
   </div>;
 }
 
-function Card({ card }) {
+function BlackjackTable({ blackjack, amount, fichas, busy, onAmountChange, onAction }) {
+  const game = blackjack?.game;
+  const hands = game?.hands || (game ? [{ id: 1, cards: game.player || [], total: game.playerTotal, wager: Number(amount), done: false }] : []);
+  const activeHand = hands[game?.activeHand] || hands[0];
+  const activeTurn = Boolean(game && !game.done && activeHand && !activeHand.done);
+  const firstPairRank = activeHand?.cards?.[0]?.pairRank ?? activeHand?.cards?.[0]?.rank;
+  const secondPairRank = activeHand?.cards?.[1]?.pairRank ?? activeHand?.cards?.[1]?.rank;
+  const canHit = game?.canHit ?? activeTurn;
+  const canDouble = game?.canDouble ?? Boolean(activeTurn && activeHand.cards.length === 2);
+  const canSplit = game?.canSplit ?? Boolean(activeTurn && activeHand.cards.length === 2 && firstPairRank === secondPairRank && hands.length < 4);
+  const canStart = !game || game.done;
+  const betOptions = [10, 25, 50, 100].filter((value) => value <= fichas);
+
+  return <section className="casino-game casino-single-game blackjack-table" role="tabpanel">
+    <div className="game-title"><span className="eyebrow">02 / BLACKJACK</span><span>21 · DEALER SE PLANTA EN 17</span></div>
+    <div className="blackjack-felt">
+      <div className="blackjack-table-lights" />
+      <div className="blackjack-dealer">
+        <div className="blackjack-seat-label"><span>CRUPIER</span><strong>{game?.dealerTotal ?? "—"}</strong></div>
+        <div className="blackjack-card-row dealer-cards">{game?.dealer?.length
+          ? game.dealer.map((card, index) => <Card key={`dealer-${index}-${card.hidden ? "hidden" : card.name}`} card={card} index={index} delay={index * 360} />)
+          : <><Card card={{ hidden: true }} index={0} delay={0} /><Card card={{ hidden: true }} index={1} delay={360} /></>}
+        </div>
+      </div>
+      <div className="blackjack-table-divider"><span>✦</span><i /><span>✦</span></div>
+      <div className="blackjack-player-hands">
+        {hands.length ? hands.map((hand, handIndex) => <div key={hand.id ?? handIndex} className={`blackjack-hand ${game && !game.done && game.activeHand === handIndex ? "active" : ""} ${hand.result ? `hand-${hand.result === "Ganaste" ? "won" : hand.result === "Empate" ? "push" : "lost"}` : ""}`}>
+          <div className="blackjack-seat-label"><span>{hands.length > 1 ? `MANO ${handIndex + 1}` : "TU MANO"}</span><strong>{hand.total ?? "—"}</strong></div>
+          <div className="blackjack-card-row">{hand.cards.map((card, index) => <Card key={`${hand.id ?? handIndex}-${index}`} card={card} index={index} delay={180 + index * 360} />)}</div>
+          <div className="blackjack-hand-stake"><span>APUESTA</span><b>✦ {Number(hand.wager || amount).toLocaleString("es-AR")}</b>{hand.doubled && <em>DOBLADA</em>}{hand.result && <strong>{hand.result.toUpperCase()}</strong>}</div>
+        </div>) : <div className="blackjack-hand blackjack-empty-hand">
+          <div className="blackjack-seat-label"><span>TU MANO</span><strong>—</strong></div>
+          <div className="blackjack-card-row"><Card card={{ hidden: true }} index={0} /><Card card={{ hidden: true }} index={1} /></div>
+          <div className="blackjack-hand-stake"><span>APUESTA</span><b>✦ {Number(amount || 0).toLocaleString("es-AR")}</b></div>
+        </div>}
+      </div>
+      {blackjack?.resultado && <div className={`blackjack-result ${blackjack.resultado === "Perdiste" ? "lost" : blackjack.resultado === "Ganaste" ? "won" : "push"}`}><span>{blackjack.resultado === "Ganaste" ? "¡MANO GANADORA!" : blackjack.resultado === "Perdiste" ? "FIN DE LA MANO" : blackjack.resultado.toUpperCase()}</span><strong>{blackjack.pago > 0 ? `✦ ${Number(blackjack.pago).toLocaleString("es-AR")}` : "SIN PREMIO"}</strong></div>}
+    </div>
+    <div className="blackjack-action-panel">
+      {canStart ? <>
+        <div className="blackjack-bet-area">
+          <div className="blackjack-bet-heading"><div><span className="eyebrow">PREPARÁ TU APUESTA</span><strong>¿Cuánto jugamos?</strong></div><span className="blackjack-balance">SALDO · ✦ {fichas.toLocaleString("es-AR")}</span></div>
+          <div className="blackjack-chip-row">
+            {[...new Set([...betOptions, Number(amount)].filter((value) => value > 0 && value <= fichas))].map((value, index) => <button key={`${value}-${index}`} type="button" className={`blackjack-chip chip-${index % 4} ${Number(amount) === value ? "selected" : ""}`} disabled={busy} onClick={() => onAmountChange(value)}><span>✦</span>{value}</button>)}
+          </div>
+          <label className="blackjack-custom-bet">APUESTA PERSONALIZADA<input type="number" min="1" max={fichas} value={amount} disabled={busy} onChange={(event) => onAmountChange(event.target.value)} /></label>
+        </div>
+        <Button variant="pink blackjack-deal-button" disabled={busy || Number(amount) < 1 || Number(amount) > fichas} onClick={() => onAction("start")}>{busy ? "REPARTIENDO..." : "REPARTIR CARTAS"} <span>↗</span></Button>
+      </> : <>
+        <div className="blackjack-turn-message"><span className="eyebrow">TU TURNO</span><strong>Elegí cómo jugar esta mano.</strong></div>
+        <div className="blackjack-controls">
+          <Button variant="outline" disabled={busy || !canHit} onClick={() => onAction("hit")}><span className="action-icon">＋</span>PEDIR</Button>
+          <Button variant="outline" disabled={busy || !canDouble || fichas < activeHand?.wager} onClick={() => onAction("double")}><span className="action-icon">×2</span>DOBLAR</Button>
+          <Button variant="outline" disabled={busy || !canSplit || fichas < activeHand?.wager} onClick={() => onAction("split")}><span className="action-icon">↗↙</span>DIVIDIR</Button>
+          <Button variant="pink" disabled={busy || !activeTurn} onClick={() => onAction("stand")}><span className="action-icon">Ⅱ</span>PLANTARSE</Button>
+        </div>
+      </>}
+      <p className="blackjack-rules">Doblar y dividir requieren una apuesta adicional igual a la mano. Podés dividir hasta cuatro manos; los ases divididos reciben una sola carta.</p>
+    </div>
+  </section>;
+}
+
+function Card({ card, index = 0, delay = index * 130 }) {
   const red = ["♥", "♦"].includes(card.suit);
-  return <div className={`playing-card ${red ? "red-card" : ""}`}><b>{card.hidden ? "?" : card.name}</b><span>{card.hidden ? "✦" : card.suit || "♠"}</span></div>;
+  return <div className={`playing-card ${card.hidden ? "card-back" : ""} ${red ? "red-card" : ""}`} style={{ "--deal-delay": `${Math.min(delay, 2200)}ms` }}>
+    {card.hidden ? <><span className="card-back-pattern">AK</span><i>AL-KORTE</i></> : <><b>{card.name}</b><span>{card.suit || "♠"}</span><small>{card.name}<br />{card.suit || "♠"}</small></>}
+  </div>;
 }
 
 function Empty({ title, copy }) { return <div className="empty-state"><span>◇</span><h3>{title}</h3><p>{copy}</p></div>; }
